@@ -1,0 +1,161 @@
+% 8x8 Rayleigh MIMO
+clc ;
+clear ;
+close all ;
+rng(2) ;
+nr = 8;
+nt = 8 ;
+sigman = 1 ;
+nH = 1e4 ;
+k=0 ;
+for snrdB = -10:5:30
+    
+    snrdB
+    Px = 10^(snrdB/10) ;
+    for iH = 1:nH
+        H = randn(nr,nt)/sqrt(2) +  sqrt(-1)*randn(nr,nt)/sqrt(2) ;
+        
+        I88(iH) = log2( real( det( eye(nr,nr) + Px / nt * H*H' ) ) );
+        
+        
+        % Bank of Match Filters
+        % stream form
+        sumTempCap = 0 ;
+        for iStream = 1:nt            
+            hk = H(:,iStream) ;
+            
+            Pk = Px/nt ;
+            Pinterferencek = 0 ;
+            for ikp = 1:nt
+                if ikp == iStream
+                    continue ;
+                end
+                hi = H(:,ikp) ;
+                Pinterferencek = Pinterferencek + norm(hk'*hi)^2/norm(hk')^2*Pk ;                                                
+            end
+            
+            snrk = Pk*norm(hk)^2 / (Pinterferencek + sigman) ;
+            sumTempCap = sumTempCap + log2(1+snrk) ;
+        end
+        IMF(iH) = sumTempCap ;
+        
+        % Decorrelator , Zero-forcing
+        RnnZF = real(   ( inv(H'*H)*H' ) * ( inv(H'*H)*H' )'   ) ;
+        snrZF = Pk ./ diag(RnnZF) ;
+        IDecorr(iH) = sum (  log2(1+ snrZF )  ) ;
+        
+        
+        % Decorrelator SIC
+        presnr = Pk./diag(RnnZF) ;
+        % descending stream order
+        [dumb streamOrder]=sort(presnr,'descend'); 
+        % ZF-SIC
+        remcolumn = (1:nt) ;
+        for iStream = 1:nt
+            hk = H(:,streamOrder(iStream)) ;
+            
+            if iStream>1
+                remcolumn(find(remcolumn==streamOrder(iStream-1)))=0 ;
+                remcolumn = sort(remcolumn) ;
+                remcolumn = remcolumn(2:end) ;
+            end            
+            Hp = H(:,remcolumn) ;
+            
+            
+            Rnn = real(   ( inv(Hp'*Hp)*Hp' ) * ( inv(Hp'*Hp)*Hp' )'   ) ;
+            
+            a= find(remcolumn==streamOrder(iStream)) ;
+            snrk_zfSIC(iStream) = Pk  /  Rnn(a,a) ;
+        end
+        IZFSIC(iH) =  sum (  log2(1+snrk_zfSIC )  ) ;
+        
+        % MMSE
+        Pk = Px/nt ;
+        for iStream = 1:nt 
+            hk = H(:,iStream) ;
+            Kz = sigman*eye(nr,nr) ; 
+            
+            for ikp=1:nt
+                if ikp==iStream
+                    continue ;
+                end
+                hi = H(:,ikp) ;
+                Kz = Kz +    hi*hi' * Pk;             
+            end
+            snrk(iStream) = Pk*hk'*inv(Kz)*hk ;
+            
+        end
+        Immse(iH) =  sum (  log2(1+snrk )  ) ;
+        
+        
+        % MMSE-SIC
+        Pk = Px/nt ;
+        % first step SNR
+        for iStream = 1:nt 
+            delcolumn = (1:nt) ;
+            delcolumn(find(delcolumn==iStream))=0 ;
+            delcolumn = sort(delcolumn) ;
+            delcolumn = delcolumn(2:nt) ;
+            Hpk = H(:,delcolumn) ;
+            
+            hk = H(:,iStream) ;
+            
+            Kzk = Hpk*Hpk'*Pk + eye(size(Hpk*Hpk')) ;
+            snrk2(iStream) = Pk  * hk' * inv(Kzk) * hk ;            
+        end
+        % descending stream order
+        [dumb streamOrder]=sort(snrk2,'descend'); 
+        
+        % MMSE-SIC
+        delcolumn = (1:nt) ;
+        for iStream = 1:nt
+            hk = H(:,streamOrder(iStream)) ;
+            
+            delcolumn(find(delcolumn==streamOrder(iStream)))=0 ;
+            delcolumn = sort(delcolumn) ;
+            delcolumn = delcolumn(2:end) ;
+            
+            Hp = H(:,delcolumn) ;
+            Kzk = Hp*Hp'*Pk + eye(size(Hp*Hp')) ;
+            snrk3(iStream) = Pk  * hk' * inv(Kzk) * hk ;            
+        end
+        ImmseSIC(iH) =  sum (  real( log2(1+snrk3 )  ) ) ;
+    end
+    %%
+    k=k+1 ;
+    snr(k) = snrdB ; 
+    Cnxn(k) = mean(I88) ;
+    CMF(k) = mean(IMF) ;
+    
+    CDecorr(k) = mean(IDecorr) ;
+    Cmmse(k) = mean(Immse) ;
+    CmmseSIC(k) = mean(ImmseSIC) ;
+    
+    CzfSIC(k) = mean(IZFSIC) ;
+end
+%%
+close all ;
+figure ;
+plot(snr,Cnxn,'-*') ; hold on ;plot(snr,CMF,'-d')   ; hold on ;plot(snr,CDecorr,'-s') ; 
+hold on ;plot(snr,Cmmse,'-x','color','g') ;hold on ;plot(snr,CmmseSIC,'-o','color','r') ;hold on ;plot(snr,CzfSIC,'-*','color','k') ;
+legend('Cnxn','CMF','CDecorr','Cmmse','CmmseSIC','CzfSIC','location','north') ; grid on ;
+xlabel('SNR (dB)') ;
+ylabel('bits/sec/Hz');
+title('Achievable capacity of different receiver structures on nxn Rayleigh fast fading MIMO') ;
+set(gca,'FontName','times') ;
+set(get(gca,'Xlabel'),'FontName','times');
+set(get(gca,'Ylabel'),'FontName','times');
+set(get(gca,'title'),'FontName','times');
+
+figure ;
+plot(snr,Cnxn./Cnxn,'-*') ; hold on ;plot(snr,CMF./Cnxn,'-d'); hold on ;plot(snr,CDecorr./Cnxn,'-s') ;
+hold on ;plot(snr,Cmmse./Cnxn,'-x','color','g') ;hold on ;plot(snr,CmmseSIC./Cnxn,'-o','color','r') ;hold on ;plot(snr,CzfSIC./Cnxn,'-*','color','k') ;
+grid on ;
+legend('Cnxn/Cnxn','CMF/Cnxn','CDecorr / Cnxn','Cmmse / Cnxn','CmmseSIC / Cnxn',' CzfSIC / Cnxn','location','south') ;
+xlabel('SNR (dB)') ;
+title('Relative achievable capacity of different receiver structures on nxn Rayleigh fast fading MIMO') ;
+set(gca,'FontName','times') ;
+set(get(gca,'Xlabel'),'FontName','times');
+set(get(gca,'Ylabel'),'FontName','times');
+set(get(gca,'title'),'FontName','times');
+
